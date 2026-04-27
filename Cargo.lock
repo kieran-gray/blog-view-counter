@@ -97,10 +97,8 @@ name = "blog_live_view_counter"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-trait",
  "serde",
  "serde_json",
- "strum",
  "time",
  "tokio",
  "tracing",

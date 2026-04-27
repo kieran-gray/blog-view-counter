@@ -1,0 +1,35 @@
+name: CI/CD
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  ci:
+    uses: ./.github/workflows/_reusable-rust-worker-ci.yaml
+    with:
+      worker-name: blog-live-view-counter
+      worker-path: ./
+      has-integration-tests: true
+
+  deploy:
+    needs: ci
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: ./.github/workflows/_reusable-rust-worker-deploy.yaml
+    with:
+      worker-name: blog-live-view-counter
+      worker-path: ./
+    secrets: inherit
