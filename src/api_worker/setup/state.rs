@@ -14,7 +14,6 @@ impl AppState {
         let do_client = DurableObjectClient::new(
             env.durable_object("VIEW_COUNTER")
                 .context("Missing binding VIEW_COUNTER")?,
-            "global".to_string(),
         );
 
         Ok(Self { config, do_client })

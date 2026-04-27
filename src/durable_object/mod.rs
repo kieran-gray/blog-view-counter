@@ -2,7 +2,6 @@ pub mod storage;
 pub mod websocket;
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
 
 use tracing::{debug, error};
 use worker::{
@@ -11,8 +10,8 @@ use worker::{
 };
 
 use crate::durable_object::{
-    storage::{flush_counts, init_schema, load_counts},
-    websocket::{broadcast_count, page_from_ws, upgrade_websocket},
+    storage::{flush_count, init_schema, load_count},
+    websocket::{broadcast_count, upgrade_websocket},
 };
 
 #[durable_object]
@@ -20,7 +19,22 @@ pub struct ViewCounter {
     state: State,
     _env: Env,
     initialized: Cell<bool>,
-    counts: RefCell<HashMap<String, u64>>,
+    count: RefCell<u64>,
+}
+
+impl ViewCounter {
+    fn ensure_initialized(&self) {
+        if !self.initialized.get() {
+            let sql = self.state.storage().sql();
+            match init_schema(&sql).and_then(|_| load_count(&sql)) {
+                Ok(loaded) => {
+                    *self.count.borrow_mut() = loaded;
+                    self.initialized.set(true);
+                }
+                Err(e) => error!(error = %e, "Failed to load view counts from storage"),
+            }
+        }
+    }
 }
 
 impl DurableObject for ViewCounter {
@@ -29,82 +43,73 @@ impl DurableObject for ViewCounter {
             state,
             _env: env,
             initialized: Cell::new(false),
-            counts: RefCell::new(HashMap::new()),
+            count: RefCell::new(0),
         }
     }
 
     async fn fetch(&self, req: Request) -> Result<Response> {
+        self.ensure_initialized();
+
         if req.path() == "/websocket" {
-            return upgrade_websocket(req, &self.state).await;
+            let response = upgrade_websocket(req, &self.state).await?;
+
+            let total = {
+                let mut count = self.count.borrow_mut();
+                *count += 1;
+                *count
+            };
+
+            broadcast_count(&self.state, total, 0);
+            self.state
+                .storage()
+                .set_alarm(std::time::Duration::from_secs(5))
+                .await?;
+
+            return Ok(response);
         }
         Response::error("Not Found", 404)
     }
 
     async fn websocket_message(
         &self,
-        ws: WebSocket,
+        _ws: WebSocket,
         message: WebSocketIncomingMessage,
     ) -> Result<()> {
         match message {
-            WebSocketIncomingMessage::String(s) if s == "{}" => {}
-            _ => return Ok(()),
-        }
-
-        let page = page_from_ws(&self.state, &ws);
-        if page.is_empty() {
-            return Ok(());
-        }
-
-        if !self.initialized.get() {
-            let sql = self.state.storage().sql();
-            match init_schema(&sql).and_then(|_| load_counts(&sql)) {
-                Ok(loaded) => *self.counts.borrow_mut() = loaded,
-                Err(e) => error!(error = %e, "Failed to load view counts from storage"),
+            WebSocketIncomingMessage::String(s) if s == "{}" => {
+                self.ensure_initialized();
+                let total = *self.count.borrow();
+                broadcast_count(&self.state, total, 0);
             }
-            self.initialized.set(true);
+            _ => {}
         }
-
-        let total = {
-            let mut counts = self.counts.borrow_mut();
-            let entry = counts.entry(page.clone()).or_insert(0);
-            *entry += 1;
-            *entry
-        };
-
-        broadcast_count(&self.state, &page, total, 0);
-
-        self.state
-            .storage()
-            .set_alarm(std::time::Duration::from_secs(5))
-            .await?;
 
         Ok(())
     }
 
     async fn websocket_close(
         &self,
-        ws: WebSocket,
+        _ws: WebSocket,
         _code: usize,
         _reason: String,
         _was_clean: bool,
     ) -> Result<()> {
-        let page = page_from_ws(&self.state, &ws);
-        if !page.is_empty() {
-            let total = self.counts.borrow().get(&page).copied().unwrap_or(0);
-            broadcast_count(&self.state, &page, total, -1);
-        }
+        self.ensure_initialized();
+        let total = *self.count.borrow();
+        broadcast_count(&self.state, total, -1);
         Ok(())
     }
 
     async fn alarm(&self) -> Result<Response> {
         debug!("Alarm triggered, persisting counts");
-        let counts = self.counts.borrow();
-        if counts.is_empty() {
+        self.ensure_initialized();
+        let counts = self.count.borrow();
+        if *counts == 0 {
             return Response::empty();
         }
 
         let sql = self.state.storage().sql();
-        if let Err(e) = init_schema(&sql).and_then(|_| flush_counts(&sql, &counts)) {
+        if let Err(e) = flush_count(&sql, *counts) {
             error!(error = %e, "Failed to persist view counts to SQL");
         }
 
