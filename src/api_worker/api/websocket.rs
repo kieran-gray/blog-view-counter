@@ -17,6 +17,12 @@ pub async fn handle_websocket_connect(
         }
     };
 
+    if !ctx.data.config.allowed_paths.contains(&page) {
+        let error = format!("Path not allowed: {page}");
+        error!(error);
+        return Ok(cors_context.add_to_response(Response::error(error, 403)?));
+    }
+
     match req.headers().get("Upgrade") {
         Ok(Some(h)) if h == "websocket" => (),
         _ => return Ok(Response::empty()?.with_status(426)),

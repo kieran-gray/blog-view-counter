@@ -47,7 +47,8 @@
   ],
   "vars": {
     "ENVIRONMENT": "production",
-    "ALLOWED_ORIGINS": "https://kgdev.me"
+    "ALLOWED_ORIGINS": "https://kgdev.me",
+    "ALLOWED_PATHS": "blog-view-counter,event-sourcing-cloudflare,quest-exactly-once-p1,quest-exactly-once-p2"
   },
   "env": {
     "dev": {
@@ -69,7 +70,8 @@
       ],
       "vars": {
         "ENVIRONMENT": "dev",
-        "ALLOWED_ORIGINS": ""
+        "ALLOWED_ORIGINS": "",
+        "ALLOWED_PATHS": "blog-view-counter,event-sourcing-cloudflare,quest-exactly-once-p1,quest-exactly-once-p2"
       }
     }
   }

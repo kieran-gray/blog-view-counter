@@ -54,4 +54,15 @@ describe("WebSocket connect", () => {
 
     expect(response.status).toBe(426);
   });
+
+  it("returns 403 when path is not allowed", async () => {
+    const response = await SELF.fetch("http://example.com/api/v1/connect/secret-page", {
+      headers: {
+        Origin: "http://localhost:5173",
+        Upgrade: "websocket",
+      },
+    });
+    
+    expect(response.status).toBe(403);
+  });
 });

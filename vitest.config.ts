@@ -9,6 +9,7 @@ export default defineWorkersConfig({
           bindings: {
             ENVIRONMENT: "test",
             ALLOWED_ORIGINS: "http://localhost:5173,http://localhost:5174",
+            ALLOWED_PATHS: "my-post",
           },
         },
       },
